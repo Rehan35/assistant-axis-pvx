@@ -107,6 +107,7 @@ def main():
     parser.add_argument("--output_dir", type=str, required=True, help="Output directory for vector .pt files")
     parser.add_argument("--min_count", type=int, default=50, help="Minimum score=3 samples required")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing output files")
+    parser.add_argument("--greater_than_zero", action="store_true", help="Use score>0 filtering instead of score==3")
     args = parser.parse_args()
 
     # Create output directory
@@ -155,8 +156,12 @@ def main():
                     continue
 
                 scores = load_scores(scores_file)
-                vector = compute_pos_3_vector(activations, scores, args.min_count)
-                vector_type = "pos_3"
+                if args.greater_than_zero:
+                    vector = compute_greater_than_zero(activations, scores, args.min_count)
+                    vector_type = "gt_0"
+                else:
+                    vector = compute_pos_3_vector(activations, scores, args.min_count)
+                    vector_type = "pos_3"
 
             # Save vector
             save_data = {
