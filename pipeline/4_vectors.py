@@ -34,6 +34,30 @@ def load_activations(activations_file: Path) -> dict:
     """Load activations from .pt file."""
     return torch.load(activations_file, map_location="cpu", weights_only=False)
 
+def compute_greater_than_zero(activations: dict, scores: dict, min_count: int) -> torch.Tensor:
+    """
+    Compute mean vector from activations where score=3.
+
+    Args:
+        activations: Dict mapping keys to tensors (n_layers, hidden_dim)
+        scores: Dict mapping keys to scores (0-3)
+        min_count: Minimum number of score=3 samples required
+
+    Returns:
+        Mean vector of shape (n_layers, hidden_dim)
+    """
+    # Filter activations with score=3
+    filtered_acts = []
+    for key, act in activations.items():
+        if key in scores and scores[key] > 0:
+            filtered_acts.append(act)
+
+    if len(filtered_acts) < min_count:
+        raise ValueError(f"Only {len(filtered_acts)} score=3 samples, need {min_count}")
+
+    # Stack and compute mean
+    stacked = torch.stack(filtered_acts)  # (n_samples, n_layers, hidden_dim)
+    return stacked.mean(dim=0)  # (n_layers, hidden_dim)
 
 def compute_pos_3_vector(activations: dict, scores: dict, min_count: int) -> torch.Tensor:
     """

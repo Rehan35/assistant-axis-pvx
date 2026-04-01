@@ -35,7 +35,9 @@ import torch.multiprocessing as mp
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from assistant_axis.generation import RoleResponseGenerator
+import jsonlines
+
+from assistant_axis.generation import RoleResponseGenerator, VLLMGenerator
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -234,6 +236,7 @@ def main():
     parser.add_argument('--max_tokens', type=int, default=512, help='Maximum tokens to generate')
     parser.add_argument('--top_p', type=float, default=0.9, help='Top-p sampling')
     parser.add_argument('--roles', nargs='+', help='Specific roles to process')
+    parser.add_argument('--default', action='store_true', help='Generate default axis (no system prompt) and save as default.jsonl')
 
     args = parser.parse_args()
 
@@ -246,6 +249,45 @@ def main():
 
     # Determine tensor parallel size
     tensor_parallel_size = args.tensor_parallel_size if args.tensor_parallel_size else total_gpus
+
+    if args.default:
+        output_file = Path(args.output_dir) / "default.jsonl"
+        if output_file.exists():
+            logger.info("default.jsonl already exists, skipping.")
+        else:
+            generator = VLLMGenerator(
+                model_name=args.model,
+                max_model_len=args.max_model_len,
+                tensor_parallel_size=tensor_parallel_size,
+                gpu_memory_utilization=args.gpu_memory_utilization,
+                temperature=args.temperature,
+                max_tokens=args.max_tokens,
+                top_p=args.top_p,
+            )
+            generator.load()
+
+            questions = []
+            with jsonlines.open(args.questions_file, 'r') as reader:
+                for entry in reader:
+                    questions.append(entry['question'])
+            questions = questions[:args.question_count]
+            logger.info(f"Loaded {len(questions)} questions for default axis")
+
+            results = generator.generate_for_role(
+                instructions=[None],
+                questions=questions,
+                prompt_indices=[0],
+            )
+            for r in results:
+                r["label"] = "default"
+
+            Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+            with jsonlines.open(output_file, mode='w') as writer:
+                for r in results:
+                    writer.write(r)
+            logger.info(f"Saved {len(results)} default responses to {output_file}")
+        logger.info("Done!")
+        return
 
     # Use multi-worker mode if we have more GPUs than tensor_parallel_size
     use_multi_worker = (
